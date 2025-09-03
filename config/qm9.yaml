@@ -1,0 +1,104 @@
+train:
+  epoch: 1
+
+data:
+  data: QM9
+  dir: './data'
+  batch_size: 4096
+  max_node_num: 9
+  max_feat_num: 4
+  init: atom
+  edge_feat: 3
+  n_nodes: [0, 2.2930e-05, 3.8217e-05, 6.8791e-05, 2.3695e-04, 9.7072e-04,
+            0.0046472, 0.023985, 0.13666, 0.83337]
+
+graphdenoiser:
+  hidden_size: 32
+  num_heads: 16
+  depth: 2
+  epoch_all: 5
+  epoch_every: 5
+
+vae:
+  epoch: 40
+  hidden_size: 32
+  hidden_size_latent: 32
+  num_heads: 16
+  depth: 2
+  params: {
+        "mean_log_var_mlp": {
+            "input_feature_dim": 32,
+            "output_size": 64,
+            "hidden_layer_dims": [],
+            "use_bias": False
+        },
+        "graph_property_pred_loss_weight": 0.1,
+        "latent_sample_strategy": "per_graph",
+        "latent_repr_dim": 32,
+        "latent_repr_size": 32,
+        "kl_divergence_weight": 0.02,
+        "kl_divergence_annealing_beta": 1.0,
+        "training_hyperparams": {
+            "max_lr": 1e-4,
+            "div_factor": 1,
+            "three_phase": False
+        },
+        "use_oclr_scheduler": False,
+        "decode_on_validation_end": True,
+        "using_cyclical_anneal": False
+    }
+
+ldmModel:
+  epoch: 100
+  base_learning_rate: 1.0e-03
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  params:
+    linear_start: 0.00085
+    linear_end: 0.012
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    first_stage_key: image
+    image_size: 512
+    channels: 64
+    cond_stage_trainable: False
+    monitor: val/loss_simple_ema
+    scale_factor: 1
+    use_ema: False
+    parameterization: x0
+    scheduler_config:
+      target: ldm.lr_scheduler.LambdaLinearScheduler
+      params:
+        warm_up_steps: [10000]
+        cycle_lengths: [10000000000000]
+        f_start: [1.e-5]
+        f_max: [1.]
+        f_min: [1.]
+
+  first_stage_config:
+    target: aae.AAE
+    model_type: wae
+    using_lincs: True
+    using_wasserstein_loss: True
+    using_gp: True
+    ckpt_path: /data/conghao001/FYP/DrugDiscovery/first_stage_models/2023-03-12_20_16_24.275625/epoch=29-train_loss=-8.20.ckpt
+
+  cond_stage_config: __is_unconditional__
+
+  unet_config:
+    target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+    params:
+      image_size: 128
+      in_channels: 9
+      out_channels: 9
+      model_channels: 64
+      dims: 1
+      attention_resolutions:
+      - 4
+      - 2
+      num_res_blocks: 1
+      channel_mult:
+      - 1
+      - 2
+      - 3
+      num_head_channels: 8

@@ -1,0 +1,110 @@
+data:
+  data: ZINC250k
+  dir: './data'
+  batch_size: 1024
+  max_node_num: 38
+  max_feat_num: 9
+  init: atom
+  edge_feat: 3
+  n_nodes: [0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00,
+            1.2026e-05, 2.0044e-05, 6.4140e-05, 2.8863e-04, 7.7770e-04, 2.8943e-03,
+            4.7463e-03, 7.1396e-03, 1.1281e-02, 1.7282e-02, 2.5255e-02, 3.4684e-02,
+            4.6574e-02, 5.8435e-02, 7.0858e-02, 8.1967e-02, 7.4651e-02, 8.4444e-02,
+            9.2790e-02, 9.1520e-02, 7.7361e-02, 6.3150e-02, 4.0276e-02, 3.1220e-02,
+            2.4537e-02, 1.9126e-02, 1.4933e-02, 1.0463e-02, 6.9832e-03, 4.1090e-03,
+            1.6075e-03, 5.4519e-04, 8.0175e-06]
+
+graphdenoiser:
+  hidden_size: 64
+  num_heads: 16
+  depth: 2
+  epoch_all: 10
+  epoch_every: 10
+
+vae:
+  epoch: 80
+  hidden_size: 64
+  hidden_size_latent: 64
+  num_heads: 16
+  depth: 2
+  params: {
+        "mean_log_var_mlp": {
+            "input_feature_dim": 64,
+            "output_size": 128,
+            "hidden_layer_dims": [],
+            "use_bias": False
+        },
+        "graph_property_pred_loss_weight": 0.1,
+        "latent_sample_strategy": "per_graph",
+        "latent_repr_dim": 64,
+        "latent_repr_size": 64,
+        "kl_divergence_weight": 0.02,
+        "kl_divergence_annealing_beta": 1.0,
+        "training_hyperparams": {
+            "max_lr": 1e-4,
+            "div_factor": 1,
+            "three_phase": False
+        },
+        "use_oclr_scheduler": False,
+        "decode_on_validation_end": True,
+        "using_cyclical_anneal": False
+    }
+
+ldmModel:
+  epoch: 200
+  base_learning_rate: 1.0e-03
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  params:
+    linear_start: 0.00085
+    linear_end: 0.012
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    first_stage_key: image
+    image_size: 512
+    channels: 128
+    cond_stage_trainable: False
+    monitor: val/loss_simple_ema
+    scale_factor: 1
+    use_ema: False
+    parameterization: x0
+    scheduler_config:
+      target: ldm.lr_scheduler.LambdaLinearScheduler
+      params:
+        warm_up_steps: [10000]
+        cycle_lengths: [10000000000000]
+        f_start: [1.e-6]
+        f_max: [1.]
+        f_min: [1.]
+
+  first_stage_config:
+    target: aae.AAE
+    model_type: wae
+    using_lincs: True
+    using_wasserstein_loss: True
+    using_gp: True
+    ckpt_path: /data/conghao001/FYP/DrugDiscovery/first_stage_models/2023-03-12_20_16_24.275625/epoch=29-train_loss=-8.20.ckpt
+
+  cond_stage_config: __is_unconditional__
+
+  unet_config:
+    target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+    params:
+      image_size: 256
+      in_channels: 38
+      out_channels: 38
+      model_channels: 128
+      dims: 1
+      attention_resolutions:
+      - 8
+      - 4
+      - 2
+      - 1
+      num_res_blocks: 1
+      channel_mult:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      num_head_channels: 8
