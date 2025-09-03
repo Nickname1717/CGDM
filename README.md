@@ -1,137 +1,84 @@
-# Multi-Stage Graph Generation with VAE and Latent Diffusion
+# CGDM: Cross‑Modality Gradient‑Guided Diffusion for Graph Generation
 
-This repository implements a multi-stage graph generation framework that combines Variational Autoencoders (VAE) with Latent Diffusion Models (LDM) for high-quality graph synthesis. The project is built upon the GDSS codebase and extends it with additional components including graph denoisers and latent diffusion in the VAE's latent space.
+This repository implements **CGDM**, a graph generation framework that performs diffusion in the **embedding modality** and periodically injects **graph‑modality** structural signals for guidance. The codebase is developed on top of **GDSS** (Score‑based Generative Modeling of Graphs). We keep the GDSS training/evaluation pipeline and add the following components:
 
-## Architecture Overview
+- **TUD (Transformer‑U‑Net Diffusion)**: an embedding‑modality denoiser with multi‑scale token downsampling (FPS) and skip‑connected fusion.
+- **Cross‑modality mean‑shift guidance**: every \(K\) steps, decode \(Z\!\to\!G\), refine \(G\) with a graph denoiser, re‑encode to \(Z'\) via GEMM, and apply a stop‑gradient mean shift \(Z\leftarrow Z+\eta\,g\) with \(g\propto(Z'-Z)\).
+- **GEMM (Graph–Embedding Mapping Module)** with **NDRSA (Node–Distance Relation Self‑Attention)**: encoders/decoders that preserve discrete structural cues in the \(G\!\leftrightarrow\!Z\) mapping.
+- **GDM (Graph Denoising Model)** with a **hybrid‑noise family** for training; noisers are **not** used at inference.
+- **Unified evaluation protocol** and scripts for all benchmarks.
 
-Our framework consists of three main components working in a pipeline:
+If you use any part of this repository, please also credit the original GDSS project: <https://github.com/harryjo97/GDSS>.
 
-1. **Graph VAE**: Encodes graphs into a continuous latent space and reconstructs them
-2. **Graph Denoiser**: Refines generated graphs using transformer-based architecture
-3. **Latent Diffusion Model**: Generates high-quality latent representations using diffusion processes
+---
 
-<p align="center">
-    <img width="750" src="assets/architecture.jpg"/>
-</p>
+## Datasets
 
-## Key Features
+We evaluate on four **general‑graph** datasets (Ego‑small, Community‑small, ENZYMES, Grid) and two **molecular** datasets (QM9, ZINC250k). Data loaders follow GDSS preprocessing and official splits.
 
-+ **Multi-stage generation pipeline** combining the strengths of VAE and diffusion models
-+ **Graph-specific architectures** with transformer-based encoders and decoders
-+ **Latent space diffusion** for improved generation quality and diversity
-+ **Graph denoising** for post-processing and refinement
-+ **Support for both generic and molecular graphs**
-
-## Dependencies
-
-GDSS is built in **Python 3.7.0** and **Pytorch 1.10.1**. Please use the following command to install the requirements:
-
-```sh
-pip install -r requirements.txt
+### Prepare generic graph datasets
+```bash
+python data/data_generators.py --dataset {ego_small|community_small|ENZYMES|grid}
 ```
 
-For molecule generation, additionally run the following command:
-
-```sh
-conda install -c conda-forge rdkit=2020.09.1.0
+### Prepare molecular graph datasets
+```bash
+python data/preprocess.py --dataset {QM9|ZINC250k}
+python data/preprocess_for_nspdk.py --dataset {QM9|ZINC250k}
 ```
 
-
-## Running Experiments
-
-
-### 1. Preparations
-
-We provide four **generic graph datasets** (Ego-small, Community_small, ENZYMES, and Grid) and two **molecular graph datasets** (QM9 and ZINC250k). 
-
-We additionally provide the commands for generating generic graph datasets as follows:
-
-```sh
-python data/data_generators.py --dataset ${dataset_name}
-```
-
-To preprocess the molecular graph datasets for training models, run the following command:
-
-```sh
-python data/preprocess.py --dataset ${dataset_name}
-python data/preprocess_for_nspdk.py --dataset ${dataset_name}
-```
-
-For the evaluation of generic graph generation tasks, run the following command to compile the ORCA program (see http://www.biolab.si/supp/orca/orca.html):
-
-```sh
-cd evaluation/orca 
+### Compile ORCA (for generic‑graph evaluation)
+```bash
+cd evaluation/orca
 g++ -O2 -std=c++11 -o orca orca.cpp
+cd -
 ```
 
+---
 
-### 2. Configurations
+## Environment
 
-The configurations are provided on the `config/` directory in `YAML` format. 
-Hyperparameters used in the experiments are specified in the Appendix C of our paper.
+Install dependencies from `requirements.txt` (PyTorch + common scientific Python stack). For molecule evaluation, install RDKit (e.g., via conda). Example:
 
-
-### 3. Training
-
-We provide the commands for the following tasks: Generic Graph Generation and Molecule Generation.
-
-To train the score models, first modify `config/${dataset}.yaml` accordingly, then run the following command.
-
-```sh
-CUDA_VISIBLE_DEVICES=${gpu_ids} python main.py --type train --config ${train_config} --seed ${seed}
+```bash
+pip install -r requirements.txt
+# optional for molecule metrics
+conda install -c conda-forge rdkit
 ```
 
-for example, 
+---
 
-```sh
-CUDA_VISIBLE_DEVICES=0 python main.py --type train --config community_small --seed 42
-```
-and
-```sh
-CUDA_VISIBLE_DEVICES=0,1 python main.py --type train --config zinc250k --seed 42
-```
+## Configuration
 
-### 4. Generation and Evaluation
+All experiment configurations live in `config/` as YAML files. Each dataset has a file that mirrors the **paper hyperparameters** (training budget, model widths, token retention, guidance schedule, etc.). Examples:
 
-To generate graphs using the trained score models, run the following command.
+- `config/ego_small.yaml`
+- `config/community_small.yaml`
+- `config/ENZYMES.yaml`
+- `config/grid.yaml`
+- `config/QM9.yaml`
+- `config/ZINC250k.yaml`
 
-```sh
-CUDA_VISIBLE_DEVICES=${gpu_ids} python main.py --type sample --config sample_qm9
-```
-or
-```sh
-CUDA_VISIBLE_DEVICES=${gpu_ids} python main.py --type sample --config sample_zinc250k
+> Tip: keep `timesteps=1000` for diffusion; select guidance steps \(K\) per dataset (e.g., 8 for QM9, 16 for ZINC250k in our runs).
+
+---
+
+
 ```
 
+Key options controlled in the config:
+- **Guidance steps \(K\)** and placement (even spacing within \(T\)).
+- **GDM refinement budget \(m\)** per guided step (use \(m{=}1\) unless you explicitly study cost/quality).
+- **Token retention** (full/75%/50%/25%) with **FPS** vs. random at fixed retention.
 
-## Pretrained checkpoints
+---
 
-We provide checkpoints of the pretrained models on the `checkpoints/` directory, which are used in the main experiments.
+## Reproducibility
 
-+ `ego_small/gdss_ego_small.pth`
-+ `community_small/gdss_community_small.pth`
-+ `ENZYMES/gdss_enzymes.pth`
-+ `grid/gdss_grid.pth`
-+ `QM9/gdss_qm9.pth`
-+ `ZINC250k/gdss_zinc250k.pth` 
+- Hyperparameters for each dataset/module are summarized in the paper’s hyperparameter table; the YAML files in `config/` match those settings.
+- Timing is reported as **wall‑clock per 10k samples** under a single protocol; we avoid mixing heterogeneous setups.
+- We provide scripts to reproduce ablations: guidance \(K\) sweeps, FPS retention sweeps, FPS vs. random, hybrid‑noise variants, and NDRSA ablations.
 
-We also provide a checkpoint of improved GDSS that uses GMH blocks instead of GCN blocks in $s_{\theta,t}$ (i.e., that uses `ScoreNetworkX_GMH` instead of `ScoreNetworkX`). The numbers of training epochs are 800 and 1000 for $s_{\theta,t}$ and $s_{\phi,t}$, respectively. For this checkpoint, use Rev. + Langevin solver and set `snr` as 0.2 and `scale_eps` as 0.8.
+---
 
-+ `ZINC250k/gdss_zinc250k_v2.pth` 
 
-## Citation
-
-If you found the provided code with our paper useful in your work, we kindly request that you cite our work.
-
-```BibTex
-@article{jo2022GDSS,
-  author    = {Jaehyeong Jo and
-               Seul Lee and
-               Sung Ju Hwang},
-  title     = {Score-based Generative Modeling of Graphs via the System of Stochastic
-               Differential Equations},
-  journal   = {arXiv:2202.02514},
-  year      = {2022},
-  url       = {https://arxiv.org/abs/2202.02514}
-}
-```
