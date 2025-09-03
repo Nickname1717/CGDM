@@ -95,8 +95,11 @@ class MolSampler(DDIMSampler):
             pred_x0_uncond, pred_x0 = self.model.apply_model(x_in, t_in, c_in, node_mask).chunk(2)
             pred_x0 = pred_x0_uncond + unconditional_guidance_scale * (pred_x0 - pred_x0_uncond)
 
+        K = 8
+        guidance_steps = set(map(int, torch.linspace(0, T - 1, K, dtype=torch.long).tolist()))
+        idx = int(index) if isinstance(index, torch.Tensor) else index
 
-        if index == 400:
+        if idx in guidance_steps:
             with torch.enable_grad():
                 x = x.detach().requires_grad_(True)
 
@@ -108,13 +111,13 @@ class MolSampler(DDIMSampler):
                 mu, log_var, latent_representation = self.vae.sample_from_latent_repr(z)
                 latent_representation = latent_representation * node_mask.unsqueeze(-1)
 
-
                 pred = latent_representation.norm(dim=-1).sum(dim=-1).mean()
                 pred = -pred
 
                 grad = torch.autograd.grad(pred, x, retain_graph=True)[0]
                 guidance_scale = 0.5
                 pred_x0 = pred_x0 - guidance_scale * grad
+
         # ===============================================
 
         # 准备DDIM相关参数
