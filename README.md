@@ -63,22 +63,45 @@ All experiment configurations live in `config/` as YAML files. Each dataset has 
 
 ---
 
+## Training
 
+There are three training stages. Each stage is launched with `--type train --config {dataset}`.
+Replace `{dataset}` with the name of the dataset (e.g., `QM9`, `ZINC250k`, `ego_small`).
+
+### 1. Train the Graph–Embedding Mapping Module (VAE)
+```bash
+CUDA_VISIBLE_DEVICES=0 python vae_trainer.py --type train --config QM9
 ```
 
-Key options controlled in the config:
-- **Guidance steps \(K\)** and placement (even spacing within \(T\)).
-- **GDM refinement budget \(m\)** per guided step (use \(m{=}1\) unless you explicitly study cost/quality).
-- **Token retention** (full/75%/50%/25%) with **FPS** vs. random at fixed retention.
+### 2. Train the Embedding‑Modality Diffusion (TUD, Latent Diffusion)
+```bash
+CUDA_VISIBLE_DEVICES=0 python ldm_trainer.py --type train --config QM9
+```
+
+### 3. Train the Graph Denoiser (GDM)
+```bash
+CUDA_VISIBLE_DEVICES=0 python graphdenoiser_trainer.py --type train --config QM9
+```
 
 ---
 
-## Reproducibility
+## Generation & Evaluation
 
-- Hyperparameters for each dataset/module are summarized in the paper’s hyperparameter table; the YAML files in `config/` match those settings.
-- Timing is reported as **wall‑clock per 10k samples** under a single protocol; we avoid mixing heterogeneous setups.
-- We provide scripts to reproduce ablations: guidance \(K\) sweeps, FPS retention sweeps, FPS vs. random, hybrid‑noise variants, and NDRSA ablations.
+Inference is performed using the latent diffusion trainer after all three models are trained:
 
----
+```bash
+CUDA_VISIBLE_DEVICES=0 python ldm_trainer.py --type sample --config QM9
+```
 
+This will generate samples and evaluate them under the unified protocol (validity, uniqueness, novelty, FCD, NSPDK, etc. for molecules; degree/cluster/orbit for generic graphs).
+
+After training, generate samples and compute metrics under the **unified protocol**:
+
+```bash
+# Sampling / evaluation
+CUDA_VISIBLE_DEVICES=0 python main.py --type sample --config sample_qm9
+CUDA_VISIBLE_DEVICES=0 python main.py --type sample --config sample_zinc250k
+
+# Generic‑graph metrics (Deg./Clus./Orb.) use ORCA; molecular metrics include FCD/NSPDK/Validity.
+```
 
